@@ -1,15 +1,25 @@
-name: Build
+name: Build and publish Morphe bundle
 
 on:
   push:
+    paths:
+      - "patches/**"
+      - "settings.gradle.kts"
+      - "build.gradle.kts"
+      - "gradle/**"
+      - "gradle.properties"
+      - "gradlew"
+      - "gradlew.bat"
+      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: read
+
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -25,8 +35,46 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: ./gradlew buildAndroid --no-daemon
 
-      - name: Upload bundle
+      - name: Upload build artifact
         uses: actions/upload-artifact@v6
         with:
           name: fmkorea-morphe-patch
           path: patches/build/libs/*.mpp
+
+      - name: Publish stable bundle metadata
+        if: github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+
+          mkdir -p bundles
+          bundle="$(find patches/build/libs -maxdepth 1 -type f -name '*.mpp' ! -name '*sources*' ! -name '*javadoc*' | head -n 1)"
+          test -n "$bundle"
+          cp "$bundle" bundles/patches-1.0.0.mpp
+
+          python3 - <<'PY'
+          import json
+          from datetime import datetime, timezone
+
+          metadata = {
+              "created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+              "description": "Removes the large FM logo shown while the FMKorea app starts.",
+              "download_url": "https://raw.githubusercontent.com/dongmin8350/fmkorea-splash-patches/main/bundles/patches-1.0.0.mpp",
+              "signature_download_url": "",
+              "version": "1.0.0",
+          }
+          with open("patches-bundle.json", "w", encoding="utf-8") as fp:
+              json.dump(metadata, fp, ensure_ascii=False, indent=2)
+              fp.write("\n")
+          PY
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bundles/patches-1.0.0.mpp patches-bundle.json
+
+          if git diff --cached --quiet; then
+            echo "Bundle is already current."
+            exit 0
+          fi
+
+          git commit -m "chore: publish Morphe patch bundle [skip ci]"
+          git push origin HEAD:main

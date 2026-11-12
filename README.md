@@ -14,7 +14,7 @@ On Android, open **Morphe → Sources → + → Remote** and enter:
 github.com/dongmin8350/fmkorea-splash-patches
 ```
 
-Then select this source for FMKorea and enable **Remove FMKorea splash logo** and **Collapse FMKorea ad spaces** before patching.
+Then select this source for FMKorea and enable **Remove FMKorea splash logo** and **Remove FMKorea ads and spaces** before patching.
 
 Direct add-source link:
 

@@ -1,15 +1,12 @@
 package app.dongmin8350.patches.fmkorea
 
 import app.morphe.patcher.Fingerprint
-import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceFile
-import app.morphe.patcher.util.addFreeRegisters
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
 import com.android.tools.smali.dexlib2.AccessFlags
-import com.android.tools.smali.dexlib2.Opcode
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
 import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
@@ -32,6 +29,9 @@ private val BLOCKED_AD_URL_PARTS = listOf(
     "adservice.google.com",
     "adnmore.co.kr",
     "adison.co",
+    "m.fmkorea.com/_adpage/",
+    "loader.fmkorea.com/",
+    "loader2.fmkorea.com/_myphp/adpost/content_new.php",
     "module=fmad",
     "act=procFmad"
 )
@@ -49,14 +49,14 @@ private fun buildUrlChecks(urlRegister: String, tempRegister: String, resultRegi
 /**
  * Removes FMKorea web advertising without requiring AdGuard.
  *
- * v1.3 adds native WebView request interception and keeps the WebView transparent
- * until the app's built-in custom CSS/JS hooks have had time to clean the document.
- * The CSS/JS layer remains as a fallback for server-rendered ad containers.
+ * v1.3.2 keeps native WebView request interception, adds FMKorea's current loader
+ * ad endpoints, and removes their containing layout nodes without hiding the whole
+ * WebView during navigation.
  */
 @Suppress("unused")
 val collapseFmkoreaAdSpacesPatch = patch(
     name = "Remove FMKorea ads and spaces",
-    description = "Blocks FMKorea ad requests inside WebView, removes server-rendered ad containers, and prevents the page-load ad-gap flash without AdGuard.",
+    description = "Blocks FMKorea ad requests inside WebView and removes their containers without AdGuard or a page-transition overlay.",
     default = false
 ) {
     compatibleWith(FMKOREA_COMPATIBILITY)
@@ -92,52 +92,6 @@ val collapseFmkoreaAdSpacesPatch = patch(
         cssFile.writeText(cleanCss + "\n\n" + FMKOREA_AD_CSS + "\n")
 
         val clientClass = MainWebViewStartedFingerprint.classDef
-
-        val onPageStarted = MainWebViewStartedFingerprint.method.addFreeRegisters(1).first
-        onPageStarted.addInstructions(
-            0,
-            """
-                const/4 v0, 0x0
-                invoke-virtual { p1, v0 }, Landroid/view/View;->setAlpha(F)V
-            """
-        )
-
-        val onPageFinished = clientClass.methods.firstOrNull { method ->
-            method.name == "onPageFinished" &&
-                method.returnType == "V" &&
-                method.parameterTypes.map { it.toString() } == listOf(
-                    "Landroid/webkit/WebView;",
-                    "Ljava/lang/String;"
-                )
-        } ?: throw PatchException("FMKorea main WebView onPageFinished method was not found.")
-
-        val finishMethod = onPageFinished.addFreeRegisters(3).first
-        val returnIndex = finishMethod.implementation
-            ?.instructions
-            ?.indexOfLast { it.opcode == Opcode.RETURN_VOID }
-            ?: -1
-
-        if (returnIndex < 0) {
-            throw PatchException("FMKorea main WebView onPageFinished return was not found.")
-        }
-
-        finishMethod.addInstructions(
-            returnIndex,
-            """
-                invoke-virtual { p1 }, Landroid/view/View;->animate()Landroid/view/ViewPropertyAnimator;
-                move-result-object v0
-                const/high16 v1, 0x3f800000
-                invoke-virtual { v0, v1 }, Landroid/view/ViewPropertyAnimator;->alpha(F)Landroid/view/ViewPropertyAnimator;
-                move-result-object v0
-                const-wide/16 v1, 0x78
-                invoke-virtual { v0, v1, v2 }, Landroid/view/ViewPropertyAnimator;->setStartDelay(J)Landroid/view/ViewPropertyAnimator;
-                move-result-object v0
-                const-wide/16 v1, 0x0
-                invoke-virtual { v0, v1, v2 }, Landroid/view/ViewPropertyAnimator;->setDuration(J)Landroid/view/ViewPropertyAnimator;
-                move-result-object v0
-                invoke-virtual { v0 }, Landroid/view/ViewPropertyAnimator;->start()V
-            """
-        )
 
         fun addRequestInterceptor(parameterType: String, urlSetup: String, superCall: String) {
             if (clientClass.methods.any { method ->
@@ -216,8 +170,9 @@ val collapseFmkoreaAdSpacesPatch = patch(
 }
 
 internal val FMKOREA_AD_CSS = """
-/* FMKOREA_AD_CSS_BEGIN v1.2.0 */
+/* FMKOREA_AD_CSS_BEGIN v1.3.2 */
 [class$="_ad"],
+.adpost,
 ins.adsbygoogle,
 [id^="google_ads_"],
 iframe[src*="doubleclick.net"],
@@ -225,6 +180,11 @@ iframe[src*="googlesyndication.com"],
 iframe[src*="googleadservices.com"],
 iframe[src*="adnmore.co.kr"],
 iframe[src*="adison.co"],
+iframe[src*="m.fmkorea.com/_adpage/"],
+iframe[src*="loader.fmkorea.com/"][src*="_loader/"],
+iframe[src*="loader2.fmkorea.com/_myphp/adpost/content_new.php"],
+.fm_vote ~ div[style*="max-width:"],
+.rd_ft > div[style^="margin:"][style*="max-width:"],
 [data-dongmin-fmkorea-ad-space] {
     display: none !important;
     height: 0 !important;
@@ -254,16 +214,16 @@ iframe[src*="adison.co"],
 """.trimIndent()
 
 internal val FMKOREA_AD_SPACE_SCRIPT = """
-// FMKOREA_AD_SPACES_BEGIN v1.2.0
+// FMKOREA_AD_SPACES_BEGIN v1.3.2
 (function () {
     'use strict';
 
     if (!/(^|\.)fmkorea\.com$/.test(location.hostname)) return;
-    if (window.__dongminFmkoreaAdsV12) return;
-    window.__dongminFmkoreaAdsV12 = true;
+    if (window.__dongminFmkoreaAdsV132) return;
+    window.__dongminFmkoreaAdsV132 = true;
 
     var marker = 'data-dongmin-fmkorea-ad-space';
-    var styleId = 'dongmin-fmkorea-ad-spaces-style-v12';
+    var styleId = 'dongmin-fmkorea-ad-spaces-style-v132';
     var queued = false;
 
     var collapsedStyle = {
@@ -279,13 +239,19 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
 
     var hardAdSelector = [
         '[class$="_ad"]',
+        '.adpost',
         'ins.adsbygoogle',
         '[id^="google_ads_"]',
         'iframe[src*="doubleclick.net"]',
         'iframe[src*="googlesyndication.com"]',
         'iframe[src*="googleadservices.com"]',
         'iframe[src*="adnmore.co.kr"]',
-        'iframe[src*="adison.co"]'
+        'iframe[src*="adison.co"]',
+        'iframe[src*="m.fmkorea.com/_adpage/"]',
+        'iframe[src*="loader.fmkorea.com/"][src*="_loader/"]',
+        'iframe[src*="loader2.fmkorea.com/_myphp/adpost/content_new.php"]',
+        '.fm_vote ~ div[style*="max-width:"]',
+        '.rd_ft > div[style^="margin:"][style*="max-width:"]'
     ].join(',');
 
     var protectedSelector = [
@@ -329,19 +295,35 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
         return !!node.querySelector(protectedSelector);
     }
 
+    function isAdOnlyWrapper(node) {
+        if (!node || containsProtectedContent(node)) return false;
+
+        var meaningful = Array.prototype.filter.call(node.children || [], function (child) {
+            return child.tagName !== 'SCRIPT' && child.tagName !== 'STYLE' && child.tagName !== 'LINK';
+        });
+
+        if (!meaningful.length) return true;
+
+        return meaningful.every(function (child) {
+            return child.hasAttribute(marker) ||
+                (child.matches && child.matches(hardAdSelector));
+        });
+    }
+
     function collapseAdAndWrapper(node) {
         collapse(node);
 
         var parent = node.parentElement;
         var depth = 0;
-        while (parent && parent !== document.body && depth++ < 3) {
+        while (parent && parent !== document.body && depth++ < 4) {
             if (containsProtectedContent(parent)) break;
 
             var className = typeof parent.className === 'string' ? parent.className : '';
             var knownWrapper =
                 /(^|\s)bd_mobile(\s|$)/.test(className) ||
                 /(^|[_-])(ad|ads)([_-]|$)/i.test(className) ||
-                /(^|[_-])(ad|ads)([_-]|$)/i.test(parent.id || '');
+                /(^|[_-])(ad|ads)([_-]|$)/i.test(parent.id || '') ||
+                isAdOnlyWrapper(parent);
 
             if (!knownWrapper) break;
             collapse(parent);

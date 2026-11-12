@@ -21,8 +21,10 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 100));
     <div id="spacer" style="display:block !important;visibility:hidden;height:80px;min-height:80px;margin:10px;padding:5px"></div>
 
     <div class="power_ad" id="class-ad">Advertisement</div>
-    <div class="fmad_wrapper" id="fmad-wrapper"><div id="fmad_123"></div></div>
-    <div id="fmad-spacer" class="slot" style="height:250px"></div>
+    <div class="fmad_wrapper" id="fmad-wrapper">
+      <div id="fmad_123"></div>
+      <div id="fmad-spacer" class="slot" style="height:250px"></div>
+    </div>
     <div class="adpost" id="adpost">Ad post</div>
     <ins class="adsbygoogle" id="adsbygoogle" style="height:100px">Google ad</ins>
     <div class="bd_mobile bd" id="ad-wrapper" style="margin:0px;padding:0px">

@@ -94,4 +94,4 @@ jobs:
           fi
 
           git commit -m "chore: publish Morphe release metadata [skip ci]"
-          git push origin HEAD:main
+          git pull --rebase origin main\n          git push origin HEAD:main

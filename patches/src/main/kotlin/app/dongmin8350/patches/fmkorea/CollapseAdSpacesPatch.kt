@@ -93,7 +93,7 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
 (function () {
     'use strict';
 
-    if (!/(^|\\.)fmkorea\\.com$/.test(location.hostname)) return;
+    if (!/(^|\.)fmkorea\.com$/.test(location.hostname)) return;
     if (window.__dongminFmkoreaAdsV12) return;
     window.__dongminFmkoreaAdsV12 = true;
 
@@ -164,10 +164,6 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
         return !!node.querySelector(protectedSelector);
     }
 
-    function isExplicitAd(node) {
-        return !!(node.matches && node.matches(hardAdSelector));
-    }
-
     function collapseAdAndWrapper(node) {
         collapse(node);
 
@@ -178,7 +174,7 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
 
             var className = typeof parent.className === 'string' ? parent.className : '';
             var knownWrapper =
-                /(^|\\s)bd_mobile(\\s|$)/.test(className) ||
+                /(^|\s)bd_mobile(\s|$)/.test(className) ||
                 /(^|[_-])(ad|ads)([_-]|$)/i.test(className) ||
                 /(^|[_-])(ad|ads)([_-]|$)/i.test(parent.id || '');
 
@@ -239,8 +235,6 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
 
         document.querySelectorAll(hardAdSelector).forEach(collapseAdAndWrapper);
 
-        // Also catch the hidden fixed-height placeholder left behind by some
-        // FMKorea ad loaders after the creative itself disappears.
         document.querySelectorAll('div[style], [' + marker + ']').forEach(function (node) {
             var s = node.style;
             var isSpacer = node.tagName === 'DIV' &&

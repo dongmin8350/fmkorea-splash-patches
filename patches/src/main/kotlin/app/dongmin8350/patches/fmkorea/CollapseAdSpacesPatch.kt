@@ -1,10 +1,13 @@
 package app.dongmin8350.patches.fmkorea
 
 import app.morphe.patcher.Fingerprint
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
 import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
 import app.morphe.patcher.patch.PatchException
 import app.morphe.patcher.patch.patch
 import app.morphe.patcher.patch.resourceFile
+import app.morphe.patcher.patch.resourceXml
+import app.morphe.patcher.util.addFreeRegisters
 import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
 import com.android.tools.smali.dexlib2.AccessFlags
 import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
@@ -21,6 +24,8 @@ private object MainWebViewStartedFingerprint : Fingerprint(
     ),
     strings = listOf("onPageStarted-external")
 )
+
+private const val EARLY_AD_HIDE_SCRIPT = "(function(){var f=function(){var d=document,s=d.getElementById('dongmin-fmkorea-prehide');if(!s){s=d.createElement('style');s.id='dongmin-fmkorea-prehide';s.textContent='.adpost,iframe[src*=\\'loader.fmkorea.com/\\'],iframe[src*=\\'loader2.fmkorea.com/_myphp/adpost/content_new.php\\'],iframe[src*=\\'m.fmkorea.com/_adpage/\\'],.fm_vote~div[style*=\\'max-width:\\'],.rd_ft>div[style^=\\'margin:\\'][style*=\\'max-width:\\']{display:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important}';var p=d.head||d.documentElement;if(p)p.appendChild(s)}};if(document.documentElement)f();else document.addEventListener('readystatechange',f,{once:true})})()"
 
 private val BLOCKED_AD_URL_PARTS = listOf(
     "doubleclick.net",
@@ -49,14 +54,13 @@ private fun buildUrlChecks(urlRegister: String, tempRegister: String, resultRegi
 /**
  * Removes FMKorea web advertising without requiring AdGuard.
  *
- * v1.3.2 keeps native WebView request interception, adds FMKorea's current loader
- * ad endpoints, and removes their containing layout nodes without hiding the whole
- * WebView during navigation.
+ * v1.3.3 injects ad-slot CSS from onPageStarted before normal post-load cleanup
+ * and zeros native AdMob placeholders in the APK layout, so the slot starts at zero.
  */
 @Suppress("unused")
 val collapseFmkoreaAdSpacesPatch = patch(
     name = "Remove FMKorea ads and spaces",
-    description = "Blocks FMKorea ad requests inside WebView and removes their containers without AdGuard or a page-transition overlay.",
+    description = "Makes FMKorea ad slots zero-height from initial page/layout setup, blocks ad requests, and removes fallback containers without AdGuard."
     default = false
 ) {
     compatibleWith(FMKOREA_COMPATIBILITY)
@@ -92,6 +96,42 @@ val collapseFmkoreaAdSpacesPatch = patch(
         cssFile.writeText(cleanCss + "\n\n" + FMKOREA_AD_CSS + "\n")
 
         val clientClass = MainWebViewStartedFingerprint.classDef
+        val onPageStarted = MainWebViewStartedFingerprint.method.addFreeRegisters(2).first
+        onPageStarted.addInstructions(
+            0,
+            """
+                const-string v0, "$EARLY_AD_HIDE_SCRIPT"
+                const/4 v1, 0x0
+                invoke-virtual { p1, v0, v1 }, Landroid/webkit/WebView;->evaluateJavascript(Ljava/lang/String;Landroid/webkit/ValueCallback;)V
+            """
+        )
+
+        resourceXml("res/layout/admob_empty_layout.xml").use { layout ->
+            layout.root.setAttribute("android:layout_width", "0dp")
+            layout.root.setAttribute("android:layout_height", "0dp")
+            layout.root.setAttribute("android:visibility", "gone")
+        }
+
+        resourceXml("res/layout/activity_main.xml").use { layout ->
+            layout.elements().forEach { element ->
+                val id = element.attribute("android:id").orEmpty().lowercase()
+                val tag = element.tag.lowercase()
+                val nativeAdSlot =
+                    tag.endsWith(".adview") ||
+                    id.contains("admob") ||
+                    id.contains("ad_view") ||
+                    id.contains("adview") ||
+                    id.contains("ad_container") ||
+                    id.contains("banner_ad")
+
+                if (nativeAdSlot) {
+                    element.setAttribute("android:layout_height", "0dp")
+                    element.setAttribute("android:minHeight", "0dp")
+                    element.setAttribute("android:visibility", "gone")
+                }
+            }
+        }
+
 
         fun addRequestInterceptor(parameterType: String, urlSetup: String, superCall: String) {
             if (clientClass.methods.any { method ->

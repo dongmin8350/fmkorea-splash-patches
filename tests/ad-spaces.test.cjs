@@ -51,6 +51,14 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 100));
 
   const w = dom.window;
   const d = w.document;
+  const observers = [];
+  const NativeObserver = w.MutationObserver;
+  w.MutationObserver = class extends NativeObserver {
+    constructor(callback) {
+      super(callback);
+      observers.push(this);
+    }
+  };
 
   w.eval(script);
   await wait();
@@ -99,6 +107,8 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 100));
   w.eval(script);
   assert.equal(d.querySelectorAll('#dongmin-fmkorea-ad-spaces-style-v12').length, 1, 'duplicate injection must be ignored');
 
+  observers.forEach(observer => observer.disconnect());
+  await wait();
   dom.window.close();
 
   const external = new JSDOM(

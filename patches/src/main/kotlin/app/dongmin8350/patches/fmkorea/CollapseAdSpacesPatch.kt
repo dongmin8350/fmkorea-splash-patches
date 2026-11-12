@@ -60,7 +60,7 @@ private fun buildUrlChecks(urlRegister: String, tempRegister: String, resultRegi
 @Suppress("unused")
 val collapseFmkoreaAdSpacesPatch = patch(
     name = "Remove FMKorea ads and spaces",
-    description = "Makes FMKorea ad slots zero-height from initial page/layout setup, blocks ad requests, and removes fallback containers without AdGuard."
+    description = "Makes FMKorea ad slots zero-height from initial page/layout setup, blocks ad requests, and removes fallback containers without AdGuard.",
     default = false
 ) {
     compatibleWith(FMKOREA_COMPATIBILITY)

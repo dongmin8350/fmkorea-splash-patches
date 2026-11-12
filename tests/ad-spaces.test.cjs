@@ -21,6 +21,8 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 100));
     <div id="spacer" style="display:block !important;visibility:hidden;height:80px;min-height:80px;margin:10px;padding:5px"></div>
 
     <div class="power_ad" id="class-ad">Advertisement</div>
+    <div class="fmad_wrapper" id="fmad-wrapper"><div id="fmad_123"></div></div>
+    <div id="fmad-spacer" class="slot" style="height:250px"></div>
     <div class="adpost" id="adpost">Ad post</div>
     <ins class="adsbygoogle" id="adsbygoogle" style="height:100px">Google ad</ins>
     <div class="bd_mobile bd" id="ad-wrapper" style="margin:0px;padding:0px">
@@ -80,6 +82,8 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 100));
   for (const id of [
     'spacer',
     'class-ad',
+    'fmad-wrapper',
+    'fmad-spacer',
     'adpost',
     'adsbygoogle',
     'ad-frame',
@@ -120,7 +124,7 @@ const wait = () => new Promise(resolve => setTimeout(resolve, 100));
   assert.equal(dynamicSpacer.style.display, 'none', 'late spacer must collapse');
 
   w.eval(script);
-  assert.equal(d.querySelectorAll('#dongmin-fmkorea-ad-spaces-style-v132').length, 1, 'duplicate injection must be ignored');
+  assert.equal(d.querySelectorAll('#dongmin-fmkorea-ad-spaces-style-v134').length, 1, 'duplicate injection must be ignored');
 
   observers.forEach(observer => observer.disconnect());
   await wait();

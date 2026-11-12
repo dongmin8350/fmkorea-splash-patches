@@ -25,7 +25,7 @@ private object MainWebViewStartedFingerprint : Fingerprint(
     strings = listOf("onPageStarted-external")
 )
 
-private const val EARLY_AD_HIDE_SCRIPT = "(function(){var f=function(){var d=document,s=d.getElementById('dongmin-fmkorea-prehide');if(!s){s=d.createElement('style');s.id='dongmin-fmkorea-prehide';s.textContent='.adpost,iframe[src*=\\'loader.fmkorea.com/\\'],iframe[src*=\\'loader2.fmkorea.com/_myphp/adpost/content_new.php\\'],iframe[src*=\\'m.fmkorea.com/_adpage/\\'],.fm_vote~div[style*=\\'max-width:\\'],.rd_ft>div[style^=\\'margin:\\'][style*=\\'max-width:\\']{display:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important}';var p=d.head||d.documentElement;if(p)p.appendChild(s)}};if(document.documentElement)f();else document.addEventListener('readystatechange',f,{once:true})})()"
+private const val EARLY_AD_HIDE_SCRIPT = "(function(){var f=function(){var d=document,s=d.getElementById('dongmin-fmkorea-prehide');if(!s){s=d.createElement('style');s.id='dongmin-fmkorea-prehide';s.textContent=\".fmad_wrapper,div[id^='fmad_']+div[style^='height:'][class],div[id^='fm_read_vote_sq_'],.adpost,div[class^='ad'],div[id^='ad'],iframe[src*='loader.fmkorea.com/'],iframe[src*='loader2.fmkorea.com/_myphp/adpost/content_new.php'],iframe[src*='m.fmkorea.com/_adpage/'],.fm_vote~div[style*='max-width:'],.rd_ft>div[style^='margin:'][style*='max-width:']{display:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important}\";var p=d.head||d.documentElement;if(p)p.appendChild(s)}};if(document.documentElement)f();else document.addEventListener('readystatechange',f,{once:true})})()"
 
 private val BLOCKED_AD_URL_PARTS = listOf(
     "doubleclick.net",
@@ -37,6 +37,9 @@ private val BLOCKED_AD_URL_PARTS = listOf(
     "m.fmkorea.com/_adpage/",
     "loader.fmkorea.com/",
     "loader2.fmkorea.com/_myphp/adpost/content_new.php",
+    "static.fmkorea.com/modules/fmad/tpl/",
+    "naver_power_link",
+    "image.fmkorea.com/images/ad/",
     "module=fmad",
     "act=procFmad"
 )
@@ -54,8 +57,7 @@ private fun buildUrlChecks(urlRegister: String, tempRegister: String, resultRegi
 /**
  * Removes FMKorea web advertising without requiring AdGuard.
  *
- * v1.3.3 injects ad-slot CSS from onPageStarted before normal post-load cleanup
- * and zeros native AdMob placeholders in the APK layout, so the slot starts at zero.
+ * v1.3.4 mirrors current List-KR FMKorea slot rules, collapses the fmad wrapper/spacer from the first layout, and hides the native AdView parent container as well.
  */
 @Suppress("unused")
 val collapseFmkoreaAdSpacesPatch = patch(
@@ -125,9 +127,17 @@ val collapseFmkoreaAdSpacesPatch = patch(
                     id.contains("banner_ad")
 
                 if (nativeAdSlot) {
+                    element.setAttribute("android:layout_width", "0dp")
                     element.setAttribute("android:layout_height", "0dp")
                     element.setAttribute("android:minHeight", "0dp")
                     element.setAttribute("android:visibility", "gone")
+
+                    element.parent?.let { parent ->
+                        parent.setAttribute("android:layout_width", "0dp")
+                        parent.setAttribute("android:layout_height", "0dp")
+                        parent.setAttribute("android:minHeight", "0dp")
+                        parent.setAttribute("android:visibility", "gone")
+                    }
                 }
             }
         }
@@ -210,8 +220,13 @@ val collapseFmkoreaAdSpacesPatch = patch(
 }
 
 internal val FMKOREA_AD_CSS = """
-/* FMKOREA_AD_CSS_BEGIN v1.3.2 */
+/* FMKOREA_AD_CSS_BEGIN v1.3.4 */
 [class$="_ad"],
+div[class^="ad"],
+div[id^="ad"],
+.fmad_wrapper,
+div[id^="fmad_"] + div[style^="height:"][class],
+div[id^="fm_read_vote_sq_"],
 .adpost,
 ins.adsbygoogle,
 [id^="google_ads_"],
@@ -254,16 +269,16 @@ iframe[src*="loader2.fmkorea.com/_myphp/adpost/content_new.php"],
 """.trimIndent()
 
 internal val FMKOREA_AD_SPACE_SCRIPT = """
-// FMKOREA_AD_SPACES_BEGIN v1.3.2
+// FMKOREA_AD_SPACES_BEGIN v1.3.4
 (function () {
     'use strict';
 
     if (!/(^|\.)fmkorea\.com$/.test(location.hostname)) return;
-    if (window.__dongminFmkoreaAdsV132) return;
-    window.__dongminFmkoreaAdsV132 = true;
+    if (window.__dongminFmkoreaAdsV134) return;
+    window.__dongminFmkoreaAdsV134 = true;
 
     var marker = 'data-dongmin-fmkorea-ad-space';
-    var styleId = 'dongmin-fmkorea-ad-spaces-style-v132';
+    var styleId = 'dongmin-fmkorea-ad-spaces-style-v134';
     var queued = false;
 
     var collapsedStyle = {
@@ -279,6 +294,11 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
 
     var hardAdSelector = [
         '[class$="_ad"]',
+        'div[class^="ad"]',
+        'div[id^="ad"]',
+        '.fmad_wrapper',
+        'div[id^="fmad_"] + div[style^="height:"][class]',
+        'div[id^="fm_read_vote_sq_"]',
         '.adpost',
         'ins.adsbygoogle',
         '[id^="google_ads_"]',
@@ -403,6 +423,31 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
         });
     }
 
+    function hasListKrSpacerPadding(node) {
+        var c = window.getComputedStyle(node);
+        var h = parseFloat(c.height);
+        return c.paddingTop === '5px' &&
+            c.paddingRight === '10px' &&
+            c.paddingBottom === '20px' &&
+            c.paddingLeft === '10px' &&
+            Number.isFinite(h) && h >= 10 && h < 1000;
+    }
+
+    function collapseListKrFmkoreaSpacers() {
+        document.querySelectorAll(
+            'body[class*="mac_os"] div.hd ~ *[id][class*=" "], ' +
+            'header.hd ~ .fmad_wrapper ~ *[class], ' +
+            'body div.bd div[style] > *[class*=" "], ' +
+            'body div.hd div[style] > *[class*=" "]'
+        ).forEach(function (node) {
+            if (!containsProtectedContent(node) && hasListKrSpacerPadding(node)) collapse(node);
+        });
+
+        document.querySelectorAll('.bd.bd_mobile').forEach(function (node) {
+            if (!node.children.length && !node.textContent.trim()) collapse(node);
+        });
+    }
+
     function sweep() {
         queued = false;
         if (!document.documentElement) return;
@@ -434,6 +479,7 @@ internal val FMKOREA_AD_SPACE_SCRIPT = """
         });
 
         collapseKnownMobileContainers();
+        collapseListKrFmkoreaSpacers();
         collapseLegacyFooterGaps();
     }
 

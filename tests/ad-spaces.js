@@ -1,13 +1,13 @@
-// FMKOREA_AD_SPACES_BEGIN v1.3.2
+// FMKOREA_AD_SPACES_BEGIN v1.3.4
 (function () {
     'use strict';
 
     if (!/(^|\.)fmkorea\.com$/.test(location.hostname)) return;
-    if (window.__dongminFmkoreaAdsV132) return;
-    window.__dongminFmkoreaAdsV132 = true;
+    if (window.__dongminFmkoreaAdsV134) return;
+    window.__dongminFmkoreaAdsV134 = true;
 
     var marker = 'data-dongmin-fmkorea-ad-space';
-    var styleId = 'dongmin-fmkorea-ad-spaces-style-v132';
+    var styleId = 'dongmin-fmkorea-ad-spaces-style-v134';
     var queued = false;
 
     var collapsedStyle = {
@@ -23,6 +23,11 @@
 
     var hardAdSelector = [
         '[class$="_ad"]',
+        'div[class^="ad"]',
+        'div[id^="ad"]',
+        '.fmad_wrapper',
+        'div[id^="fmad_"] + div[style^="height:"][class]',
+        'div[id^="fm_read_vote_sq_"]',
         '.adpost',
         'ins.adsbygoogle',
         '[id^="google_ads_"]',
@@ -147,6 +152,31 @@
         });
     }
 
+    function hasListKrSpacerPadding(node) {
+        var c = window.getComputedStyle(node);
+        var h = parseFloat(c.height);
+        return c.paddingTop === '5px' &&
+            c.paddingRight === '10px' &&
+            c.paddingBottom === '20px' &&
+            c.paddingLeft === '10px' &&
+            Number.isFinite(h) && h >= 10 && h < 1000;
+    }
+
+    function collapseListKrFmkoreaSpacers() {
+        document.querySelectorAll(
+            'body[class*="mac_os"] div.hd ~ *[id][class*=" "], ' +
+            'header.hd ~ .fmad_wrapper ~ *[class], ' +
+            'body div.bd div[style] > *[class*=" "], ' +
+            'body div.hd div[style] > *[class*=" "]'
+        ).forEach(function (node) {
+            if (!containsProtectedContent(node) && hasListKrSpacerPadding(node)) collapse(node);
+        });
+
+        document.querySelectorAll('.bd.bd_mobile').forEach(function (node) {
+            if (!node.children.length && !node.textContent.trim()) collapse(node);
+        });
+    }
+
     function sweep() {
         queued = false;
         if (!document.documentElement) return;
@@ -178,6 +208,7 @@
         });
 
         collapseKnownMobileContainers();
+        collapseListKrFmkoreaSpacers();
         collapseLegacyFooterGaps();
     }
 

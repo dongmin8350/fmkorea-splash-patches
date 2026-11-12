@@ -1,25 +1,69 @@
 package app.dongmin8350.patches.fmkorea
 
+import app.morphe.patcher.Fingerprint
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructions
+import app.morphe.patcher.extensions.InstructionExtensions.addInstructionsWithLabels
 import app.morphe.patcher.patch.PatchException
-import app.morphe.patcher.patch.resourcePatch
+import app.morphe.patcher.patch.patch
+import app.morphe.patcher.patch.resourceFile
+import app.morphe.patcher.util.addFreeRegisters
+import app.morphe.patcher.util.proxy.mutableTypes.MutableMethod.Companion.toMutable
+import com.android.tools.smali.dexlib2.AccessFlags
+import com.android.tools.smali.dexlib2.Opcode
+import com.android.tools.smali.dexlib2.builder.MutableMethodImplementation
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethod
+import com.android.tools.smali.dexlib2.immutable.ImmutableMethodParameter
+
+private object MainWebViewStartedFingerprint : Fingerprint(
+    name = "onPageStarted",
+    returnType = "V",
+    parameters = listOf(
+        "Landroid/webkit/WebView;",
+        "Ljava/lang/String;",
+        "Landroid/graphics/Bitmap;"
+    ),
+    strings = listOf("onPageStarted-external")
+)
+
+private val BLOCKED_AD_URL_PARTS = listOf(
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googleadservices.com",
+    "adservice.google.com",
+    "adnmore.co.kr",
+    "adison.co",
+    "module=fmad",
+    "act=procFmad"
+)
+
+private fun buildUrlChecks(urlRegister: String, tempRegister: String, resultRegister: String): String =
+    BLOCKED_AD_URL_PARTS.joinToString("\n") { part ->
+        """
+        const-string $tempRegister, "$part"
+        invoke-virtual { $urlRegister, $tempRegister }, Ljava/lang/String;->contains(Ljava/lang/CharSequence;)Z
+        move-result $resultRegister
+        if-nez $resultRegister, :block
+        """.trimIndent()
+    }
 
 /**
- * Uses FMKorea's existing WebView custom CSS/JS hooks.
+ * Removes FMKorea web advertising without requiring AdGuard.
  *
- * This patch is intentionally DOM-scoped to fmkorea.com and does not require
- * AdGuard, a VPN, DNS filtering, or HTTPS interception.
+ * v1.3 adds native WebView request interception and keeps the WebView transparent
+ * until the app's built-in custom CSS/JS hooks have had time to clean the document.
+ * The CSS/JS layer remains as a fallback for server-rendered ad containers.
  */
 @Suppress("unused")
-val collapseFmkoreaAdSpacesPatch = resourcePatch(
+val collapseFmkoreaAdSpacesPatch = patch(
     name = "Remove FMKorea ads and spaces",
-    description = "Removes FMKorea web ads, suppresses mobile power-link generation, and collapses the remaining ad containers without AdGuard.",
+    description = "Blocks FMKorea ad requests inside WebView, removes server-rendered ad containers, and prevents the page-load ad-gap flash without AdGuard.",
     default = false
 ) {
     compatibleWith(FMKOREA_COMPATIBILITY)
 
     execute {
-        val scriptFile = get("assets/custom.js", false)
-        val cssFile = get("assets/custom.css", false)
+        val scriptFile = resourceFile("assets/custom.js")
+        val cssFile = resourceFile("assets/custom.css")
 
         if (!scriptFile.isFile || !cssFile.isFile) {
             throw PatchException(
@@ -34,7 +78,6 @@ val collapseFmkoreaAdSpacesPatch = resourcePatch(
             )
         }
 
-        // Repatching replaces our previous block instead of stacking observers/styles.
         val previousJsBlock = Regex(
             "// FMKOREA_AD_SPACES_BEGIN[^\\n]*[\\s\\S]*?// FMKOREA_AD_SPACES_END"
         )
@@ -47,6 +90,128 @@ val collapseFmkoreaAdSpacesPatch = resourcePatch(
 
         scriptFile.writeText(cleanScript + "\n\n" + FMKOREA_AD_SPACE_SCRIPT + "\n")
         cssFile.writeText(cleanCss + "\n\n" + FMKOREA_AD_CSS + "\n")
+
+        val clientClass = MainWebViewStartedFingerprint.classDef
+
+        val onPageStarted = MainWebViewStartedFingerprint.method.addFreeRegisters(1).first
+        onPageStarted.addInstructions(
+            0,
+            """
+                const/4 v0, 0x0
+                invoke-virtual { p1, v0 }, Landroid/view/View;->setAlpha(F)V
+            """
+        )
+
+        val onPageFinished = clientClass.methods.firstOrNull { method ->
+            method.name == "onPageFinished" &&
+                method.returnType == "V" &&
+                method.parameterTypes.map { it.toString() } == listOf(
+                    "Landroid/webkit/WebView;",
+                    "Ljava/lang/String;"
+                )
+        } ?: throw PatchException("FMKorea main WebView onPageFinished method was not found.")
+
+        val finishMethod = onPageFinished.addFreeRegisters(3).first
+        val returnIndex = finishMethod.implementation
+            ?.instructions
+            ?.indexOfLast { it.opcode == Opcode.RETURN_VOID }
+            ?: -1
+
+        if (returnIndex < 0) {
+            throw PatchException("FMKorea main WebView onPageFinished return was not found.")
+        }
+
+        finishMethod.addInstructions(
+            returnIndex,
+            """
+                invoke-virtual { p1 }, Landroid/view/View;->animate()Landroid/view/ViewPropertyAnimator;
+                move-result-object v0
+                const/high16 v1, 0x3f800000
+                invoke-virtual { v0, v1 }, Landroid/view/ViewPropertyAnimator;->alpha(F)Landroid/view/ViewPropertyAnimator;
+                move-result-object v0
+                const-wide/16 v1, 0x78
+                invoke-virtual { v0, v1, v2 }, Landroid/view/ViewPropertyAnimator;->setStartDelay(J)Landroid/view/ViewPropertyAnimator;
+                move-result-object v0
+                const-wide/16 v1, 0x0
+                invoke-virtual { v0, v1, v2 }, Landroid/view/ViewPropertyAnimator;->setDuration(J)Landroid/view/ViewPropertyAnimator;
+                move-result-object v0
+                invoke-virtual { v0 }, Landroid/view/ViewPropertyAnimator;->start()V
+            """
+        )
+
+        fun addRequestInterceptor(parameterType: String, urlSetup: String, superCall: String) {
+            if (clientClass.methods.any { method ->
+                    method.name == "shouldInterceptRequest" &&
+                        method.parameterTypes.map { it.toString() } == listOf(
+                            "Landroid/webkit/WebView;",
+                            parameterType
+                        )
+                }
+            ) {
+                throw PatchException(
+                    "FMKorea now implements shouldInterceptRequest itself; inspect the new version before patching."
+                )
+            }
+
+            clientClass.methods.add(
+                ImmutableMethod(
+                    clientClass.type,
+                    "shouldInterceptRequest",
+                    listOf(
+                        ImmutableMethodParameter("Landroid/webkit/WebView;", null, null),
+                        ImmutableMethodParameter(parameterType, null, null)
+                    ),
+                    "Landroid/webkit/WebResourceResponse;",
+                    AccessFlags.PUBLIC.value,
+                    null,
+                    null,
+                    MutableMethodImplementation(8)
+                ).toMutable().apply {
+                    addInstructionsWithLabels(
+                        0,
+                        """
+                            $urlSetup
+                            if-eqz v1, :allow
+                            ${buildUrlChecks("v1", "v2", "v3")}
+
+                            :allow
+                            $superCall
+                            move-result-object v0
+                            return-object v0
+
+                            :block
+                            new-instance v0, Landroid/webkit/WebResourceResponse;
+                            const-string v1, "text/plain"
+                            const-string v2, "UTF-8"
+                            const/4 v3, 0x0
+                            new-array v3, v3, [B
+                            new-instance v4, Ljava/io/ByteArrayInputStream;
+                            invoke-direct { v4, v3 }, Ljava/io/ByteArrayInputStream;-><init>([B)V
+                            invoke-direct { v0, v1, v2, v4 }, Landroid/webkit/WebResourceResponse;-><init>(Ljava/lang/String;Ljava/lang/String;Ljava/io/InputStream;)V
+                            return-object v0
+                        """
+                    )
+                }
+            )
+        }
+
+        addRequestInterceptor(
+            "Landroid/webkit/WebResourceRequest;",
+            """
+                invoke-interface { p2 }, Landroid/webkit/WebResourceRequest;->getUrl()Landroid/net/Uri;
+                move-result-object v0
+                if-eqz v0, :allow
+                invoke-virtual { v0 }, Landroid/net/Uri;->toString()Ljava/lang/String;
+                move-result-object v1
+            """.trimIndent(),
+            "invoke-super { p0, p1, p2 }, Landroid/webkit/WebViewClient;->shouldInterceptRequest(Landroid/webkit/WebView;Landroid/webkit/WebResourceRequest;)Landroid/webkit/WebResourceResponse;"
+        )
+
+        addRequestInterceptor(
+            "Ljava/lang/String;",
+            "move-object v1, p2",
+            "invoke-super { p0, p1, p2 }, Landroid/webkit/WebViewClient;->shouldInterceptRequest(Landroid/webkit/WebView;Ljava/lang/String;)Landroid/webkit/WebResourceResponse;"
+        )
     }
 }
 

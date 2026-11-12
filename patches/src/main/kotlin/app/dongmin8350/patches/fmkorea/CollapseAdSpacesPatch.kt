@@ -25,7 +25,7 @@ private object MainWebViewStartedFingerprint : Fingerprint(
     strings = listOf("onPageStarted-external")
 )
 
-private const val EARLY_AD_HIDE_SCRIPT = "(function(){var f=function(){var d=document,s=d.getElementById('dongmin-fmkorea-prehide');if(!s){s=d.createElement('style');s.id='dongmin-fmkorea-prehide';s.textContent=\".fmad_wrapper,div[id^='fmad_']+div[style^='height:'][class],div[id^='fm_read_vote_sq_'],.adpost,div[class^='ad'],div[id^='ad'],iframe[src*='loader.fmkorea.com/'],iframe[src*='loader2.fmkorea.com/_myphp/adpost/content_new.php'],iframe[src*='m.fmkorea.com/_adpage/'],.fm_vote~div[style*='max-width:'],.rd_ft>div[style^='margin:'][style*='max-width:']{display:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important}\";var p=d.head||d.documentElement;if(p)p.appendChild(s)}};if(document.documentElement)f();else document.addEventListener('readystatechange',f,{once:true})})()"
+private const val EARLY_AD_HIDE_SCRIPT = "(function(){var d=document,s=d.getElementById('dongmin-prehide');if(!s){s=d.createElement('style');s.id='dongmin-prehide';s.textContent=`.fmad_wrapper,div[id^=fmad_]+div[style^=height][class],div[id^=fm_read_vote_sq_],.adpost{display:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;border:0!important;overflow:hidden!important}`;(d.head||d.documentElement).appendChild(s)}})()"
 
 private val BLOCKED_AD_URL_PARTS = listOf(
     "doubleclick.net",
@@ -57,7 +57,7 @@ private fun buildUrlChecks(urlRegister: String, tempRegister: String, resultRegi
 /**
  * Removes FMKorea web advertising without requiring AdGuard.
  *
- * v1.3.4 mirrors current List-KR FMKorea slot rules, collapses the fmad wrapper/spacer from the first layout, and hides the native AdView parent container as well.
+ * v1.3.5 keeps the initial fmad slot at zero with a Smali-safe minimal early CSS script, while the full List-KR-style cleanup remains in custom.css/custom.js.
  */
 @Suppress("unused")
 val collapseFmkoreaAdSpacesPatch = patch(

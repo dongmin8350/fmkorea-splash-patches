@@ -1,7 +1,7 @@
 {
-  "created_at": "2026-11-11T13:35:22",
-  "description": "Removes the startup logo and collapses hidden advertisement spaces in FMKorea.",
-  "download_url": "https://github.com/dongmin8350/fmkorea-splash-patches/releases/download/v1.1.0/patches-1.1.0.mpp",
+  "created_at": "2026-11-12T06:10:20",
+  "description": "Removes the startup logo and removes FMKorea ads and leftover ad spaces without AdGuard.",
+  "download_url": "https://github.com/dongmin8350/fmkorea-splash-patches/releases/download/v1.2.0/patches-1.2.0.mpp",
   "signature_download_url": "",
-  "version": "1.1.0"
+  "version": "1.2.0"
 }
